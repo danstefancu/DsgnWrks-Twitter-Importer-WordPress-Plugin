@@ -6,37 +6,55 @@ Description: Helps you to backup your tweets while allowing you to have a site t
 Author URI: http://dsgnwrks.pro
 Author: DsgnWrks
 Donate link: http://dsgnwrks.pro/give/
-Version: 1.1.0
+Version: 2.0.0
 */
 
 define( '_DWTW_PATH', plugin_dir_path( __FILE__ ) );
 define( '_DWTW_URL', plugins_url('/', __FILE__ ) );
 
 class DsgnWrksTwitter {
+	public $version =  '2.0.0';
+	public $options;
 
-	protected $plugin_name = 'DsgnWrks Twitter Importer';
-	protected $plugin_id   = 'dw-twitter-importer-settings';
+	protected $prefix      = 'dp_twimport';
+	protected $slug;
+	protected $capability;
+	protected $import_messages;
+
+
 	protected $pre         = 'dsgnwrks_tweet_';
 	protected $optkey      = 'dsgnwrks_tweet_options';
-	protected $opts        = false;
 	protected $users       = false;
 	protected $tw          = false;
-	protected $plugin_page;
 
 	function __construct() {
+
+		$this->slug = $this->name( 'settings' );
+		$this->import_messages = new WP_Error();
 
 		// i18n
 		load_plugin_textdomain( 'dsgnwrks', false, dirname( plugin_basename( __FILE__ ) ) );
 
-		add_action( 'admin_init', array( $this, 'init' ) );
+		// Register settings and get options
+		add_action( 'init', array( $this, 'init' ), 10 );
+
 		add_action( 'admin_menu', array( $this, 'admin_setup' ) );
-		add_action( 'current_screen', array( $this, 'redirect' ) );
+
+		// For options page
+		add_action( 'admin_init', array( $this, 'admin_init' ), 10 );
+
+		// Handle actions (import, delete)
+		add_action( 'admin_init', array ( $this, 'process_action' ), 11 );
+
+		// Display messages
+		add_action( 'all_admin_notices', array( $this, 'admin_notice' ) );
+
 		// Load the plugin settings link shortcut.
-		add_filter( 'plugin_action_links_' . plugin_basename( plugin_dir_path( __FILE__ ) . 'dsgnwrks-twitter-importer.php' ), array( $this, 'settings_link' ) );
+		add_filter( 'plugin_action_links_' . plugin_basename( __FILE__ ), array( $this, 'settings_link' ) );
 
 		// Make sure we have our Twitter class
 		if ( ! class_exists( 'TwitterWP' ) )
-			require_once( _DWTW_PATH .'TwitterWP/lib/TwitterWP.php' );
+			include( _DWTW_PATH .'TwitterWP/lib/TwitterWP.php' );
 	}
 
 	/**
@@ -44,37 +62,41 @@ class DsgnWrksTwitter {
 	 *
 	 * @since 1.1.0
 	 * @param  array $links Default plugin action links.
+	 *
 	 * @return array $links Amended plugin action links.
 	 */
 	public function settings_link( $links ) {
-
-		$setting_link = sprintf( '<a href="%s">%s</a>', $this->plugin_page(), __( 'Settings', 'dsgnwrks' ) );
-		array_unshift( $links, $setting_link );
-
+		$links[] = sprintf( '<a href="%s">%s</a>', $this->plugin_page(), __( 'Settings', 'dsgnwrks' ) );
 		return $links;
-
 	}
 
-
+	/**
+	 * Run on init, easier to filter by other plugins.
+	 */
 	public function init() {
+		$this->capability = apply_filters( $this->name( 'capability' ), 'manage_options' );
 
-		if ( isset( $_GET['tweetimport'] ) ) {
-			set_transient( sanitize_title( urldecode( $_GET['tweetimport'] ) ) .'-tweetimportdone', date_i18n( 'l F jS, Y @ h:i:s A', strtotime( current_time('mysql') ) ), 14400 );
-		}
+		$this->options = $this->get_option( 'options', array() );
+	}
+
+	/**
+	 * Prepare options page.
+	 */
+	public function admin_init() {
 
 		register_setting(
-			'dsgnwrks_twitter_importer_users',
-			$this->pre.'registration',
-			array( $this, 'users_validate' )
+			$this->name( 'users' ),
+			$this->name( 'users' )
+			//array( $this, 'validate_users' )
 		);
 		register_setting(
-			'dsgnwrks_twitter_importer_settings',
-			$this->optkey,
-			array( $this, 'settings_validate' )
+			$this->name( 'options' ),
+			$this->name( 'options' )
+			//array( $this, 'validate_settings' )
 		);
 	}
 
-	public function users_validate( $opts ) {
+	public function validate_users( $opts ) {
 
 		if ( !empty( $opts['user'] ) ) {
 			$validated = $this->validate_user( $opts['user'] );
@@ -89,11 +111,11 @@ class DsgnWrksTwitter {
 					$opts['badauth'] = 'good';
 					$opts['noauth'] = '';
 
-					$this->update_options( 'username', $opts['user'] );
+					$this->update_option( 'username', $opts['user'] );
 				}
 
 			} else {
-				// unset( $opts['user'] );
+				// unset( $options['user'] );
 				$opts['badauth'] = 'error';
 				$opts['noauth'] = true;
 			}
@@ -105,7 +127,7 @@ class DsgnWrksTwitter {
 		return preg_match( '/^[A-Za-z0-9_]+$/', $username );
 	}
 
-	public function settings_validate( $opts ) {
+	public function validate_settings( $opts ) {
 
 		if ( empty( $opts ) ) return;
 		foreach ( $opts as $user => $useropts ) {
@@ -115,8 +137,7 @@ class DsgnWrksTwitter {
 				if ( $key === 'date-filter' ) {
 					if ( empty( $opts[$user]['mm'] ) && empty( $opts[$user]['dd'] ) && empty( $opts[$user]['yy'] ) || !empty( $opts[$user]['remove-date-filter'] ) ) {
 						$opts[$user][$key] = 0;
-					}
-					else {
+					} else {
 						$opts[$user][$key] = strtotime( $opts[$user]['mm'] .'/'. $opts[$user]['dd'] .'/'. $opts[$user]['yy'] );
 					}
 				} elseif ( $key === 'post-type' ) {
@@ -126,8 +147,7 @@ class DsgnWrksTwitter {
 				} elseif ( $key === 'yy' || $key === 'mm' || $key === 'dd' ) {
 					if ( empty( $opts[$user]['mm'] ) && empty( $opts[$user]['dd'] ) && empty( $opts[$user]['yy'] ) || !empty( $opts[$user]['remove-date-filter'] ) ) {
 						$opts[$user][$key] = '';
-					}
-					else {
+					} else {
 						$opts[$user][$key] = $this->filter( $opt, 'absint', '' );
 					}
 				} else {
@@ -137,161 +157,218 @@ class DsgnWrksTwitter {
 			}
 		}
 
-		// wp_die( '<pre>'. htmlentities( print_r( $opts, true ) ) .'</pre>' );
-
 		return $opts;
 	}
 
 	public function admin_setup() {
-		$page = add_submenu_page( 'tools.php', 'DsgnWrks Twitter Import Settings', 'Twitter Importer', 'manage_options', $this->plugin_id, array( $this, 'settings' ) );
-		add_action( 'admin_print_styles-' . $page, array( $this, 'styles' ) );
-		add_action( 'admin_print_scripts-' . $page, array( $this, 'scripts' ) );
-		add_action( 'admin_head-'. $page, array( $this, 'fire_importer' ) );
+		$hook = add_submenu_page(
+			'tools.php',
+			__( 'DsgnWrks Twitter Import Settings' ),
+			__( 'Twitter Importer' ),
+			$this->capability,
+			$this->slug,
+			array( $this, 'options_page' )
+		);
+
+		//var_dump( $hook, $this->slug );
+
+		add_action( 'admin_print_styles-' . $hook, array( $this, 'styles' ) );
+		add_action( 'admin_print_scripts-' . $hook, array( $this, 'scripts' ) );
 	}
 
-	public function settings() { require_once( 'settings.php' ); }
+	/**
+	 * The template for the options page
+	 */
+	public function options_page() {
+		include( 'settings.php' );
+	}
 
+	/**
+	 * Enqueue style
+	 */
 	public function styles() {
-		wp_enqueue_style( 'dw-twitter-admin', plugins_url( 'css/admin.css', __FILE__ ) );
+		wp_enqueue_style(
+			$this->name( 'admin' ),
+			plugins_url( 'css/admin.css', __FILE__ ),
+			array(),
+			$this->version
+		);
 	}
 
+	/**
+	 * Enqueue js and pass a variable to js.
+	 */
 	public function scripts() {
-		wp_enqueue_script( 'dw-twitter-admin', plugins_url( 'js/admin.js', __FILE__ ), array( 'jquery' ), '1.1' );
-		$cpts = get_post_types( array( 'public' => true ) );
-		foreach ( $cpts as $cpt ) {
-			$taxes = get_object_taxonomies( $cpt );
-			if ( !empty( $taxes ) ) $data['cpts'][$cpt][] = $taxes;
+		wp_enqueue_script(
+			$this->name( 'admin' ),
+			plugins_url( 'js/admin.js', __FILE__ ),
+			array( 'jquery' ),
+			$this->version,
+			true
+		);
+		$post_types = get_post_types( array( 'public' => true ) );
+
+		foreach ( $post_types as $post_type ) {
+			$taxonomies = get_object_taxonomies( $post_type );
+			if ( !empty( $taxonomies ) )
+				$data['cpts'][$post_type][] = $taxonomies;
 		}
-		if ( !empty( $data ) ) wp_localize_script( 'dw-twitter-admin', 'dwtwitter', $data );
+
+		if ( !empty( $data ) )
+			wp_localize_script( $this->name( 'admin' ), 'dwtwitter', $data );
 	}
 
-	public function fire_importer() {
-		if ( isset( $_GET['tweetimport'] ) && isset( $_POST[$this->optkey]['username'] ) ) {
-			add_action( 'all_admin_notices', array( $this, 'import' ) );
+	/**
+	 * Handle actions like import or delete
+	 *
+	 * @since 2.0.0
+	 */
+	public function process_action() {
+
+
+		if ( isset ( $_GET['twitter_username'] ) && isset( $_REQUEST['action'] ) && check_admin_referer( $this->name( 'options' ) ) ) {
+
+
+
+			if ( ! $this->twitterwp()->user_exists( $_GET['twitter_username'] ) ) {
+				$this->log( new WP_Error( $this->name( 'error', 'Import error: invalid username.' ) ) );
+				return;
+			}
+
+			switch ( $_REQUEST['action'] ) {
+				case 'delete' :
+
+					$this->log( new WP_Error( $this->name( 'success' ), 'User deleted: <strong>' . $_GET['twitter_username'] . '</strong>' ) );
+					break;
+
+				case 'import' :
+					$this->import( $_GET['twitter_username'] );
+					break;
+
+			}
+
+			wp_redirect( wp_get_referer() );
+			exit;
 		}
 	}
 
-	public function import() {
+	/**
+	 * Actual importer
+	 *
+	 * @param string $username
+	 *
+	 * @return bool
+	 */
+	public function import( $username = '' ) {
 
-		$opts = $this->options();
-		$id = $_POST[$this->optkey]['username'];
-		if ( !isset( $_GET['tweetimport'] ) || empty( $id ) ) return;
+		$this->import_messages->add( $this->name( 'success' ), 'Import started.' );
 
-		$TwitterWP = $this->twitterwp();
+		if ( ! $username ) {
+			$this->log( new WP_Error( $this->name( 'error' ), 'Could not import. Empty username.' ) );
+			return false;
+		}
+
+		if ( ! $this->twitterwp()->user_exists( $username ) ) {
+			$this->log( new WP_Error( $this->name( 'error' ), 'Could not import. Invalid twitter username.' ) );
+			return false;
+		}
+
+		if ( ! isset( $this->options[$username] ) ) {
+			$this->log( new WP_Error( $this->name( 'error' ), 'Could not import. No options saved for this username: <strong>' . $username . '</strong>.' ) );
+			return false;
+		}
 
 		// Filter to override TwitterWP method for getting tweets
-		$tweets = apply_filters( 'dw_twitter_api_get_tweets', null, $TwitterWP, $this );
+		$tweets = apply_filters( $this->name( 'get_tweets' ), null, $this );
 
 		// If no override, proceed as usual
 		if ( null === $tweets ) {
 			// @TODO https://dev.twitter.com/docs/working-with-timelines
-			$tweets = $TwitterWP->get_tweets( $id, 200 );
+
+			// get latest 200 tweets
+			$tweets = $this->twitterwp()->get_tweets( $username, 200 );
 		}
 
 		if ( is_wp_error( $tweets ) ) {
-			echo '<div id="message" class="error"><p>'. implode( '<br/>', $tweets->get_error_messages( 'twitterwp_error' ) ) . '</p></div>';
-
-			$opts[$id]['noauth'] = true;
-			$this->update_options( $opts );
-			return;
+			$this->log( new WP_Error( $this->name( 'error' ), $tweets->get_error_messages() ) );
+			return false;
 		}
 
 		// pre-import filter
-		$tweets = apply_filters( 'dw_twitter_api', $tweets );
-
-		echo '<div id="message" class="updated">';
-
-		$pre = date('e');
-		date_default_timezone_set( get_option( 'timezone_string' ) );
-
-		$messages = $this->messages( $tweets, $opts[$id] );
-
-		while ( !empty( $messages['next_url'] ) ) {
-			$messages = $this->messages( $messages['next_url'], $opts[$id], $messages['message'] );
-		}
-
-		foreach ( $messages['message'] as $key => $message ) {
-			echo $message;
-		}
-
-		date_default_timezone_set( $pre );
-
-		echo '</div>';
-	}
-
-	protected function messages( $tweets, $opts, $prevmessages = array() ) {
-
-		$messages = $this->loop( $tweets, $opts );
-
-		$next_url = ( !isset( $tweets->pagination->next_url ) || $messages['nexturl'] == 'halt' ) ? '' : $tweets->pagination->next_url;
-
-		$messages = ( isset( $messages['messages'] ) ) ? array_merge( $prevmessages, $messages['messages'] ) : $prevmessages;
-		if ( empty( $messages ) && empty( $prevmessages ) ) {
-			return array(
-				'message' => array( '<p>No new tweets to import</p>' ),
-				'next_url' => $next_url,
-			);
-		} else {
-			return array(
-				'message' => $messages,
-				'next_url' => $next_url,
-			);
-		}
-	}
-
-	protected function loop( $tweets = array(), $opts = array() ) {
+		$tweets = apply_filters( $this->name( 'filter_tweets' ), $tweets );
 
 		foreach ( $tweets as $tweet ) {
 
-			if ( $opts['date-filter'] > strtotime( $tweet->created_at ) ) {
-				$messages['nexturl'] = 'halt';
+			// filter by date
+			if ( $this->options[$username]['date-filter'] > strtotime( $tweet->created_at ) ) {
+				$this->import_messages->add( $this->name( 'success' ), 'Date filter limit reached.' );
 				break;
 			}
 
-			if ( !empty( $opts['tag-filter'] ) ) {
-				$tags = explode( ', ', $opts['tag-filter'] );
-				$in_title = false;
+			// filter by hashtag
+			if ( !empty( $this->options[$username]['tag-filter'] ) ) {
+				$tags = explode( ', ', $this->options[$username]['tag-filter'] );
+				$has_hashtag = false;
 				if ( $tags ) {
-				    foreach ($tags as $tag) {
-				        if ( strpos( $tweet->text, '#'.$tag ) ) $in_title = true;
-				    }
+					foreach ( $tags as $tag ) {
+						if ( strpos( $tweet->text, '#'.$tag ) !== false )
+							$has_hashtag = true;
+					}
 				}
 
-				if ( !$in_title ) continue;
+				if ( !$has_hashtag )  {
+					continue;
+				}
 			}
 
-			$alreadyInSystem = new WP_Query(
+			// filter retweets
+			if ( $this->options[$username]['no-retweets'] ) {
+				if ( $tweet->retweeted || ( strpos( $tweet->text, 'RT @' ) !== false ) )
+					continue;
+			}
+
+			// filter replies
+			if ( $this->options[$username]['no-replies'] ) {
+				if ( $tweet->in_reply_to_user_id || ( strpos( $tweet->text, '@' ) == 0 ) )
+					continue;
+			}
+
+			// filter by existence
+			$already_stored = new WP_Query(
 				array(
-					'post_type' => $opts['post-type'],
-					'meta_query' => array(
-						array(
-							'key' => 'tweet_id',
-							'value' => $tweet->id_str
-						)
-					)
+					 'post_type' => $this->options[$username]['post-type'],
+					 'meta_query' => array(
+						 array(
+							 'key' => 'tweet_id',
+							 'value' => $tweet->id_str
+						 )
+					 )
 				)
 			);
-			if ( $alreadyInSystem->have_posts() ) {
+
+			if ( $already_stored->have_posts() ) {
 				continue;
 			}
 
-			$messages['messages'][] = $this->save_tweet( $tweet, $opts );
+			// all good. save
+			$this->save_tweet( $tweet, $this->options[$username] );
 		}
-		return !empty( $messages ) ? $messages : array();
+
+		$this->log( $this->import_messages );
+
+		return true;
 	}
 
 	protected function save_tweet( $tweet, $opts = array() ) {
 
 		global $user_ID;
 
-		$opts = ( empty( $opts ) ) ? get_option( $this->optkey ) : $opts;
-
 		if ( !isset( $opts['draft'] ) ) $opts['draft'] = 'draft';
 		if ( !isset( $opts['author'] ) ) $opts['author'] = $user_ID;
 
 		$post_date = date( 'Y-m-d H:i:s', strtotime( $tweet->created_at ) );
 
-		$tweet_text = apply_filters( 'dw_twitter_clean_tweets', false ) ? iconv( 'UTF-8', 'ISO-8859-1//IGNORE', $tweet->text ) : $tweet->text;
+		$tweet_text = apply_filters( $this->name( 'clean_tweet' ), false ) ? iconv( 'UTF-8', 'ISO-8859-1//IGNORE', $tweet->text ) : $tweet->text;
 
 		$post = array(
 		  'post_author' => $opts['author'],
@@ -299,12 +376,22 @@ class DsgnWrksTwitter {
 		  'post_date' => $post_date,
 		  'post_date_gmt' => $post_date,
 		  'post_status' => $opts['draft'],
-		  'post_title' => $post_date,
+		  'post_title' => wp_kses( $tweet_text, array() ),
 		  'post_type' => $opts['post-type'],
 		);
+
+		// Allow other plugins to manipulate post data before saving
+		$post = apply_filters( $this->name( 'insert_tweet_postdata' ), $post, $tweet, $this->options );
+
 		$new_post_id = wp_insert_post( $post, true );
 
-		apply_filters( 'dw_twitter_post_save', $new_post_id, $tweet );
+		do_action( $this->name( 'insert_tweet' ), $new_post_id, $tweet );
+
+		if ( is_wp_error( $new_post_id ) ) {
+			$this->import_messages->add( $this->name( 'error' ), $new_post_id->get_error_messages() );
+			return;
+		}
+
 
 		// Set taxonomy terms from options
 		$taxes = get_taxonomies( array( 'public' => true ), 'objects' );
@@ -356,7 +443,7 @@ class DsgnWrksTwitter {
 		if ( !empty( $tweet->in_reply_to_screen_name ) )
 			update_post_meta( $new_post_id, 'in_reply_to_screen_name', $tweet->in_reply_to_screen_name );
 
-		return '<p><strong><em>&ldquo;'. wp_trim_words( strip_tags( $tweet->text ), 10 ) .'&rdquo; </em> imported and created successfully.</strong></p>';
+		$this->import_messages->add( $this->name( 'success' ), '<em>'. wp_trim_words( strip_tags( $tweet->text ), 10 ) .'</em> imported and created successfully.' );
 	}
 
 	public function redirect() {
@@ -393,13 +480,8 @@ class DsgnWrksTwitter {
 		?>
 		<form class="twitter-importer" method="post" action="options.php">
 			<?php
-			settings_fields( 'dsgnwrks_twitter_importer_users' );
-			// echo $message;
-			// $class = !empty( $users ) ? 'logout' : '';
-			?>
-			<!-- <p class="submit">
-				<input type="submit" name="save" class="button-primary authenticate <?php echo $class; ?>" value="<?php _e( 'Secure Authentication with Instagram' ) ?>" />
-			</p> -->
+			settings_fields( 'dsgnwrks_twitter_importer_users' ); ?>
+
 
 			<table class="form-table">
 				<p><?php echo $message; ?></p>
@@ -409,20 +491,30 @@ class DsgnWrksTwitter {
 				</tr>
 			</table>
 			<p class="submit">
-				<input type="submit" name="save" class="button-primary" value="<?php echo _e( 'Save' ) ?>" />
+				<input type="submit" name="save" class="button-primary" value="<?php _e( 'Save' ) ?>" />
 			</p>
 		</form>
 
 		<?php
 	}
 
-	protected function import_link( $id ) {
-		// return add_query_arg( 'tweetimport', $id, add_query_arg( 'page', $this->plugin_id, admin_url( $GLOBALS['pagenow'] ) ) );
-		return add_query_arg( array( 'page' => $this->plugin_id, 'tweetimport' => 'true' ), admin_url( $GLOBALS['pagenow'] ) );
-	}
-
 	public function twitterwp() {
-		$this->tw = $this->tw ? $this->tw : TwitterWP::start( '0=m39J9KuiCEajGFwRA3VzxQ&1=jazlUeGiKPkQVzPHZMDqlEKM9pqv84l93zyhTR6pIng&2=24203273-MqOWFPQZZLGf4RaZSEVLOxalZAa9rCg1NCMEoCYMw&3=12Ya5GLGgiHFV3YK6GnixUx50dvEEf2vMita2kOoFQ' /*12Ya5GLGgiHFV3YK6GnixUx50dvEEf2vMita2kOoFQ */ );
+		$this->tw = $this->tw ? $this->tw : TwitterWP::start( '0=KZcFkYYJdYh3DyfY4qof5vMyp&1=bbIKQ7inqvDmvn7jPL6uAi1l7IUMWOx8FreSLujXFAYI4WThl5&2=13976842-gfJIkVgcZrsXZy1Dd6cvIdc17e0KhDO0k0lHirnlI&3=iAjHVm8PSTSWvaxXNs6UBj2za5oaCMsLHZo9i2mIUjhMC' );
+		/*
+		 * DP
+		 * KZcFkYYJdYh3DyfY4qof5vMyp
+		 * bbIKQ7inqvDmvn7jPL6uAi1l7IUMWOx8FreSLujXFAYI4WThl5
+		 * 13976842-gfJIkVgcZrsXZy1Dd6cvIdc17e0KhDO0k0lHirnlI
+		 * iAjHVm8PSTSWvaxXNs6UBj2za5oaCMsLHZo9i2mIUjhMC
+		 */
+
+		/*
+		 * DSGNWRKS
+		 * m39J9KuiCEajGFwRA3VzxQ
+		 * jazlUeGiKPkQVzPHZMDqlEKM9pqv84l93zyhTR6pIng
+		 * 24203273-MqOWFPQZZLGf4RaZSEVLOxalZAa9rCg1NCMEoCYMw
+		 * 12Ya5GLGgiHFV3YK6GnixUx50dvEEf2vMita2kOoFQ
+		 */
 		return $this->tw;
 	}
 
@@ -433,12 +525,12 @@ class DsgnWrksTwitter {
 	 * @return array|string      whole option array or specific value by key
 	 */
 	protected function options( $key = '' ) {
-		$this->opts = $this->opts ? $this->opts : get_option( $this->optkey );
+		$this->options = $this->options ? $this->options : get_option( $this->optkey );
 
 		if ( $key )
-			return isset( $this->opts[$key] ) ? $this->opts[$key] : false;
+			return isset( $this->options[$key] ) ? $this->options[$key] : false;
 
-		return $this->opts;
+		return $this->options;
 	}
 
 	/**
@@ -456,35 +548,121 @@ class DsgnWrksTwitter {
 	}
 
 	/**
-	 * Retrieve plugin's options (or optionally a specific value by key)
-	 * @param  string       $key key who's related value is desired
-	 * @return array|string      whole option array or specific value by key
+	 * Display messages stored in transients, clean afterwards.
+	 *
+	 * @since 2.0.0
 	 */
-	protected function update_options( $keyoropts, $value = '' ) {
-		$this->opts = $this->options();
+	public function admin_notice() {
 
-		if ( $value )
-			$this->opts[$keyoropts] = $value;
-		elseif ( is_array( $keyoropts ) )
-			$this->opts = $keyoropts;
-		else
-			return false;
+		$t = get_transient( $this->name('message') );;
 
-		update_option( $this->optkey, $this->opts );
-		return $this->opts;
+		if ( $t ) {
+			foreach ( $t as $m ) {
+				foreach ( $m as $code => $message ) {
+					$class = ($code == $this->name( 'error' )) ? 'error' : 'updated';
+
+					printf( '<div class="%s"><p>%s</p></div>', $class, $message );
+				}
+			}
+			delete_transient( $this->name('message') );
+		}
+
 	}
 
 	/**
-	 * Get's the url for the plugin admin page
+	 * Get the url for the plugin admin page
 	 * @since  1.1.0
 	 * @return string plugin admin page url
 	 */
 	public function plugin_page() {
-		// Set our plugin page parameter
-		$this->plugin_page = $this->plugin_page ? $this->plugin_page : add_query_arg( 'page', $this->plugin_id, admin_url( '/tools.php' ) );
-		return $this->plugin_page;
+		return add_query_arg( 'page', $this->slug, admin_url( 'tools.php' ) );
 	}
 
+	public function option_name( $handle, $subhandle = '', $echo = true ) {
+		if ( $subhandle )
+			$string = 'name="%s[%s][%s]"';
+		else
+			$string = 'name="%s[%s]"';
+
+		if ( $echo )
+			printf( $string, $this->name( 'options' ), $handle, $subhandle );
+		else
+			sprintf( $string, $this->name( 'options' ), $handle );
+	}
+
+	/**
+	 * Store messages in transients, so crons can also throw messages.
+	 *
+	 * @param WP_Error $message
+	 * @since 2.0.0
+	 */
+	public function log( $message ) {
+
+		if ( ! is_wp_error( $message ) )
+			return;
+
+		$t = get_transient( $this->name('message') );
+
+		if ( ! $t )
+			$t = array();
+
+		foreach ( (array) $message->errors as $code => $messages ) {
+			$t[] =  array( $code => $messages );
+		}
+
+		set_transient( $this->name('message'), $t, 60 * 60 * 24 );
+	}
+
+	/**
+	 * Compose prefixed name. Helper function.
+	 *
+	 * @param $handle
+	 * @param string $separator
+	 * @since 2.0.0
+	 *
+	 * @return string
+	 */
+	function name( $handle, $separator = '_' ) {
+		return $this->prefix . $separator . $handle;
+	}
+
+	/**
+	 * Set prefixed options
+	 *
+	 * @param string $name
+	 * @param mixed $value
+	 * @since 2.0.0
+	 *
+	 * @return bool
+	 */
+	function update_option( $name, $value = '' ) {
+		return update_option( $this->name( $name ), $value );
+	}
+
+	/**
+	 * Get prefixed options
+	 *
+	 * @param string $name
+	 * @param mixed $default
+	 * @since 2.0.0
+	 *
+	 * @return mixed
+	 */
+	function get_option( $name, $default = false ) {
+		return get_option( $this->name( $name ), $default );
+	}
+
+	/**
+	 * Delete prefixed options
+	 *
+	 * @param string $name
+	 * @since 2.0.0
+	 *
+	 * @return bool
+	 */
+	function delete_option( $name ) {
+		return delete_option( $this->name( $name ) );
+	}
 }
 
 new DsgnWrksTwitter;

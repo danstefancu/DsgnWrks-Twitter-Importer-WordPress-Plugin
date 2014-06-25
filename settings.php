@@ -5,6 +5,9 @@ if ( !current_user_can( 'manage_options' ) )  {
 add_thickbox();
 
 $opts = $this->options();
+
+var_dump( $opts );
+
 $reg = get_option( $this->pre.'registration' );
 $users = $this->users();
 
@@ -53,7 +56,7 @@ if ( !empty( $users ) && is_array( $users ) ) {
 	<h2>DsgnWrks Twitter Importer Options</h2>
 	<div id="screen-meta" style="display: block; ">
 	<?php
-
+/*
 	$nogo = $nofeed = false;
 	// Setup our notifications
 	if ( !empty( $reg['badauth'] ) && $reg['badauth'] == 'error' ) {
@@ -64,7 +67,7 @@ if ( !empty( $users ) && is_array( $users ) ) {
 	} elseif ( isset( $_GET['settings-updated'] ) && $_GET['settings-updated'] == 'true' ) {
 		echo '<div id="message" class="updated"><p>Settings Updated</p></div>';
 	}
-
+*/
 	?>
 	<div class="clear"></div>
 
@@ -117,7 +120,7 @@ if ( !empty( $users ) && is_array( $users ) ) {
 				if ( !empty( $users ) && is_array( $users ) ) {
 					?>
 					<form class="twitter-importer" method="post" action="options.php">
-					<?php settings_fields( 'dsgnwrks_twitter_importer_settings' );
+					<?php settings_fields( $this->name( 'options' ) );
 
 					foreach ( $users as $key => $user ) {
 						$id = str_replace( ' ', '', strtolower( $user ) );
@@ -141,7 +144,15 @@ if ( !empty( $users ) && is_array( $users ) ) {
 
 								<tr valign="top" class="info">
 								<th colspan="2">
-									<p>Ready to import from Twitter &mdash; <span><a id="delete-<?php echo $id; ?>" class="delete-twitter-user" href="<?php echo add_query_arg( 'delete-twitter-user', $id ); ?>">Delete User?</a></span></p>
+									<p>Ready to import from Twitter &mdash; <span>
+											<?php
+											$delete_url = add_query_arg( 'action', 'delete', admin_url( 'admin.php' ) );
+											$delete_url = add_query_arg( 'twitter_username', $id, $delete_url );
+											$delete_url = add_query_arg( '_wpnonce', wp_create_nonce( $this->name( 'options' ) ), $delete_url );
+											?>
+											<a class="delete-button" href="<?php echo $delete_url; ?>"><?php _e( 'Delete?' ); ?></a>
+											</span>
+									</p>
 									<p>Please select the import filter options below. If none of the options are selected, all tweets for <strong><?php echo $id; ?></strong> will be imported. <em>(This could take a long time if you have a lot of tweets)</em></p>
 								</th>
 								</tr>
@@ -149,12 +160,10 @@ if ( !empty( $users ) && is_array( $users ) ) {
 								<tr valign="top">
 								<th scope="row"><strong>Filter import by hashtag:</strong><br/>Will only import tweets with these hashtags.<br/>Please separate tags (without the <b>#</b> symbol) with commas.</th>
 								<?php $tag_filter = isset( $opts[$id]['tag-filter'] ) ? $opts[$id]['tag-filter'] : ''; ?>
-								<td><input type="text" placeholder="e.g. keeper, fortheblog" name="dsgnwrks_tweet_options[<?php echo $id; ?>][tag-filter]" value="<?php echo $tag_filter; ?>" />
-								<?php
-									if ( !empty( $opts[$id]['tag-filter'] ) ) {
-										echo '<p><label><input type="checkbox" name="'.$this->optkey.'['.$id.'][remove-tag-filter]" value="yes" /> <em> Remove filter</em></label></p>';
-									}
-								?>
+								<td><input type="text" placeholder="e.g. keeper, fortheblog" <?php $this->option_name( $id, 'tag-filter' ); ?> value="<?php echo $tag_filter; ?>" />
+								<?php if ( !empty( $opts[$id]['tag-filter'] ) ) { ?>
+									<p><label><input type="checkbox" <?php $this->option_name( $id, 'remove-tag-filter' ); ?> value="yes" /> <em> Remove filter</em></label></p>
+								<?php } ?>
 								</td>
 								</tr>
 
@@ -176,54 +185,57 @@ if ( !empty( $users ) && is_array( $users ) ) {
 										} else {
 											$date = '<span style="color: #E0522E;">Please select full date</span>';
 										}
-									}
-									else { $date = 'No date selected'; }
-									$date = '<p style="padding-bottom: 2px; margin-bottom: 2px;" id="timestamp"> '. $date .'</p>';
-									$date .= '<input type="hidden" name="'.$this->optkey.'['.$id.'][date-filter]" value="'. $date_filter .'" />';
+									} else {
+										$date = 'No date selected';
+									} ?>
+									<div class="timestamp-wrap">
+										<p style="padding-bottom: 2px; margin-bottom: 2px;" id="timestamp"><?php echo $date; ?></p>
 
-									$month = '<select id="twitter-mm" name="'.$this->optkey.'['.$id.'][mm]">\n';
-									$month .= '<option value="">Month</option>';
-									for ( $i = 1; $i < 13; $i = $i +1 ) {
-										$monthnum = zeroise($i, 2);
-										$month .= "\t\t\t" . '<option value="' . $monthnum . '"';
-										if ( isset( $opts[$id]['mm'] ) && $i == $opts[$id]['mm'] )
-											$month .= ' selected="selected"';
-										$month .= '>' . $monthnum . '-' . $wp_locale->get_month_abbrev( $wp_locale->get_month( $i ) ) . "</option>\n";
-									}
-									$month .= '</select>';
+										<input type="hidden" <?php $this->option_name( $id, 'date-filter' ); ?> value="<?php echo $date_filter; ?>" />
 
-									$day = '<select style="width: 5em;" id="twitter-dd" name="'.$this->optkey.'['.$id.'][dd]">\n';
-									$day .= '<option value="">Day</option>';
-									for ( $i = 1; $i < 32; $i = $i +1 ) {
-										$daynum = zeroise($i, 2);
-										$day .= "\t\t\t" . '<option value="' . $daynum . '"';
-										if ( isset( $opts[$id]['dd'] ) && $i == $opts[$id]['dd'] )
-											$day .= ' selected="selected"';
-										$day .= '>' . $daynum;
-									}
-									$day .= '</select>';
+										<select id="twitter-mm" <?php $this->option_name( $id, 'mm' ); ?>>
+											<option value="0">Month</option>
+											<?php for ( $i = 1; $i <= 12; $i++ ) {
+											$value = zeroise($i, 2);
+											?>
+											<option value="<?php echo $value; ?>" <?php selected( $value, $opts[$id]['mm'] ); ?>>
+												<?php echo $value . $wp_locale->get_month_abbrev( $wp_locale->get_month( $i ) ); ?>
+											</option>
 
-									$year = '<select style="width: 5em;" id="twitter-yy" name="'.$this->optkey.'['.$id.'][yy]">\n';
-									$year .= '<option value="">Year</option>';
-									for ( $i = date( 'Y' ); $i >= 2010; $i = $i -1 ) {
-										$yearnum = zeroise($i, 4);
-										$year .= "\t\t\t" . '<option value="' . $yearnum . '"';
-										if ( isset( $opts[$id]['yy'] ) && $i == $opts[$id]['yy'] )
-											$year .= ' selected="selected"';
-										$year .= '>' . $yearnum;
-									}
-									$year .= '</select>';
+											<?php } ?>
+										</select>
 
+										<select id="twitter-dd" <?php $this->option_name( $id, 'dd' ); ?>>
+											<option value="0">Day</option>
+											<?php for ( $i = 1; $i <= 31; $i++ ) {
+												$value = zeroise($i, 2);
+												?>
+												<option value="<?php echo $value; ?>" <?php selected( $value, $opts[$id]['dd'] ); ?>>
+													<?php echo $value; ?>
+												</option>
 
-									echo '<div class="timestamp-wrap">';
-									/* translators: 1: month input, 2: day input, 3: year input, 4: hour input, 5: minute input */
-									printf(__('%1$s %2$s %3$s %4$s'), $date, $month, $day, $year );
+											<?php } ?>
+										</select>
 
-									if ( $complete[$id] == true ) {
-										echo '<p><label><input type="checkbox" name="'.$this->optkey.'['.$id.'][remove-date-filter]" value="yes" /> <em> Remove filter</em></label></p>';
-									}
-									?>
+										<select style="width: 5em;" id="twitter-mm" <?php $this->option_name( $id, 'yy' ); ?>>
+											<option value="0">Year</option>
+											<?php for ( $i = date( 'Y' ); $i >= 2010; $i-- ) {
+												$value = zeroise($i, 4);
+												?>
+												<option value="<?php echo $value; ?>" <?php selected( $i, $opts[$id]['yy'] ); ?>>
+													<?php echo $value; ?>
+												</option>
 
+											<?php } ?>
+										</select>
+
+										<?php if ( $complete[$id] == true ) { ?>
+											<p>
+												<label><input type="checkbox" <?php $this->option_name( $id, 'remove-date-filter'); ?> value="yes" /> <em> Remove filter</em></label>
+											</p>
+										<?php } ?>
+
+									</div>
 								</td>
 								</tr>
 
@@ -233,26 +245,11 @@ if ( !empty( $users ) && is_array( $users ) ) {
 								</th>
 								</tr>
 
-								<?php
-								// echo '<tr valign="top">
-								// <th scope="row"><strong>Insert Twitter photo into:</strong></th>
-								// <td>
-								//     <select id="twitter-image" name="dsgnwrks_tweet_options['.$id.'][image]">';
-								//         if ( $opts[$id]['image'] == 'feat-image') $selected1 = 'selected="selected"';
-								//         echo '<option value="feat-image" '. $selected1 .'>Featured Image</option>';
-								//         if ( $opts[$id]['image'] == 'content') $selected2 = 'selected="selected"';
-								//         echo '<option value="content" '. $selected2 .'>Content</option>';
-								//         if ( $opts[$id]['image'] == 'both') $selected3 = 'selected="selected"';
-								//         echo '<option value="both" '. $selected3 .'>Both</option>';
-								//     echo '</select>
-								// </td>
-								// </tr>';
-								?>
 
 								<tr valign="top">
 								<th scope="row"><strong>Import to Post-Type:</strong></th>
 								<td>
-									<select class="twitter-post-type" id="twitter-post-type-<?php echo $id; ?>" name="dsgnwrks_tweet_options[<?php echo $id; ?>][post-type]">
+									<select class="twitter-post-type" id="twitter-post-type-<?php echo $id; ?>" <?php $this->option_name( $id, 'post-type'); ?>>
 										<?php
 										$args = array(
 										  'public' => true,
@@ -273,7 +270,7 @@ if ( !empty( $users ) && is_array( $users ) ) {
 								<tr valign="top">
 								<th scope="row"><strong>Imported posts status:</strong></th>
 								<td>
-									<select id="twitter-draft" name="dsgnwrks_tweet_options[<?php echo $id; ?>][draft]">
+									<select id="twitter-draft" <?php $this->option_name( $id, 'draft'); ?>>
 										<?php $draft_status = isset( $opts[$id]['draft'] ) ? $opts[$id]['draft'] : ''; ?>
 										<option value="draft" <?php selected( $draft_status, 'draft' ); ?>>Draft</option>
 										<option value="publish" <?php selected( $draft_status, 'publish' ); ?>>Published</option>
@@ -289,10 +286,24 @@ if ( !empty( $users ) && is_array( $users ) ) {
 								<td>
 									<?php
 									$selected_user = isset( $opts[$id]['author'] ) ? $opts[$id]['author'] : '';
-									wp_dropdown_users( array( 'name' => $this->optkey.'['.$id.'][author]', 'selected' => $selected_user ) );
+									wp_dropdown_users( array( 'name' => sprintf( '%s[%s][%s]', $this->name( 'options' ), $id, 'author' ), 'selected' => $selected_user ) );
 									?>
 
 								</td>
+								</tr>
+
+								<tr valign="top">
+									<th scope="row"><strong>Exclude replies</strong></th>
+									<td>
+										<input type="checkbox" <?php $this->option_name( $id, 'no-replies'); ?> value="1" <?php echo checked( 1, $opts[$id]['no-replies'] ); ?> />
+									</td>
+								</tr>
+
+								<tr valign="top">
+									<th scope="row"><strong>Exclude retweets</strong></th>
+									<td>
+										<input type="checkbox" <?php $this->option_name( $id, 'no-retweets'); ?> value="1" <?php echo checked( 1, $opts[$id]['no-retweets'] ); ?> />
+									</td>
 								</tr>
 
 								<?php
@@ -310,7 +321,7 @@ if ( !empty( $users ) && is_array( $users ) ) {
 										<th scope="row"><strong>Select Imported Posts Format:</strong></th>
 										<td>
 
-											<select id="dsgnwrks_tweet_options[<?php echo $id; ?>][post_format]" name="dsgnwrks_tweet_options[<?php echo $id; ?>][post_format]">
+											<select id="dsgnwrks_tweet_options[<?php echo $id; ?>][post_format]" <?php $this->option_name( $id, 'post-format'); ?>>
 												<option value="0" <?php selected( $opts[$id]['post_format'], '' ); ?>>Standard</option>
 												<?php foreach ( $post_formats[0] as $format ) : ?>
 												<option value="<?php echo esc_attr( $format ); ?>" <?php selected( $opts[$id]['post_format'], $format ); ?>><?php echo esc_html( get_post_format_string( $format ) ); ?></option>
@@ -377,8 +388,7 @@ if ( !empty( $users ) && is_array( $users ) ) {
 
 								}
 
-								echo '<input type="hidden" name="'.$this->optkey.'[username]" value="replaceme" />';
-								// echo '<input id="replaceme" type="hidden" name="'.$this->optkey.'[saved]" value="'. $id .'" />';
+								echo '<input type="hidden" name="'.$this->optkey.'[username]" value="'. $id .'" />';
 
 								$trans = get_transient( $id .'-tweetimportdone' );
 
@@ -394,11 +404,12 @@ if ( !empty( $users ) && is_array( $users ) ) {
 
 							<p class="submit">
 								<?php
-								$importlink = $this->import_link( $id );
+								$import_url = add_query_arg( 'action', 'import', admin_url( 'admin.php' ) );
+								$import_url = add_query_arg( 'twitter_username', $id, $import_url );
+								$import_url = add_query_arg( '_wpnonce', wp_create_nonce( $this->name( 'options' ) ), $import_url );
 								?>
 								<input type="submit" id="save-<?php echo sanitize_title( $id ); ?>" name="save" class="button-primary" value="<?php _e( 'Save' ) ?>" />
-								<input type="submit" id="import-<?php echo sanitize_title( $id ); ?>" name="<?php echo $importlink; ?>" class="button-secondary import-button" value="<?php _e( 'Import' ) ?>" />
-								<!-- <a href="<?php echo $importlink; ?>" class="button-secondary import-button" id="import-<?php echo $id; ?>">Import</a> -->
+								<a class="button-secondary import-button" href="<?php echo $import_url; ?>"><?php _e( 'Import' ); ?></a>
 							</p>
 						</div>
 						<?php
@@ -408,8 +419,6 @@ if ( !empty( $users ) && is_array( $users ) ) {
 
 					<?php
 				} else {
-					// $message = '<p>Welcome to the Twitter Importer! Click to be taken to Twitter\'s site to securely authorize this plugin for use with your account.</p>';
-					// $this->user_form( $users, $message );
 
 					$message = 'Welcome to Twitter Importer! Enter a Twitter username, and we\'ll get started.';
 					$this->user_form( $reg, $message );
@@ -423,10 +432,7 @@ if ( !empty( $users ) && is_array( $users ) ) {
 				</div>
 
 				<div class="contextual-help-sidebar">
-					<p class="jtsocial"><a class="jtpaypal" href="http://j.ustin.co/rYL89n" target="_blank">Contribute<span></span></a>
-						<a class="jttwitter" href="http://j.ustin.co/wUfBD3" target="_blank">Follow me on Twitter<span></span></a>
-						<a class="jtemail" href="http://j.ustin.co/scbo43" target="blank">Contact Me<span></span></a>
-					</p>
+
 				</div>
 
 			</div>

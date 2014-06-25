@@ -67,27 +67,15 @@ jQuery(document).ready(function($) {
 		}
 	}
 
-	$('.delete-twitter-user').click(function(event) {
-		if ( !confirm('Are you sure you want to delete user, '+ $(this).attr('id').replace('delete-','') +'?') ) {
-			event.preventDefault();
+	$('.delete-button').click(function(e) {
+		if ( !confirm( 'Are you sure you want to delete this user? ' ) ) {
+			e.preventDefault();
 		}
 	});
 
 	var width = $('.help-tab-content').width();
 	$('.dw-pw-form').width(width-85);
 
-	$('.button-primary').click(function(event) {
-		var id = $(this).attr('id').replace('save-','');
-		$('input[name="dsgnwrks_tweet_options[username]"]').val(id);
-		// event.preventDefault();
-	});
 
-	$('.import-button').click(function(event) {
-		var newaction = $(this).attr('name'),
-		id = $(this).attr('id').replace('import-','');
-		$('.twitter-importer').attr('action', newaction);
-		$('input[name="dsgnwrks_tweet_options[username]"]').val(id);
-		// event.preventDefault();
-	});
 
 });
