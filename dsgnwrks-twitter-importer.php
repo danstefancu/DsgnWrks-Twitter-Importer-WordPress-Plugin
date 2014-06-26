@@ -180,7 +180,7 @@ class DsgnWrksTwitter {
 	 * The template for the options page
 	 */
 	public function options_page() {
-		include( 'settings.php' );
+		include( 'form-settings.php' );
 	}
 
 	/**
@@ -454,56 +454,10 @@ class DsgnWrksTwitter {
 		$this->import_messages->add( $this->name( 'success' ), '<em>'. wp_trim_words( strip_tags( $tweet->text ), 10 ) .'</em> imported and created successfully.' );
 	}
 
-	public function redirect() {
-
-		if ( isset( $_GET['delete-twitter-user'] ) ) {
-			$users = $this->users();
-			foreach ( $users as $key => $user ) {
-				if ( $user == $_GET['delete-twitter-user'] ) $delete = $key;
-			}
-			unset( $users[$delete] );
-			update_option( $this->pre.'users', $users );
-
-			$opts = $this->options();
-			unset( $opts[$_GET['delete-twitter-user']] );
-			if ( isset( $opts['username'] ) && $opts['username'] == $_GET['delete-twitter-user'] )
-				unset( $opts['username'] );
-			$this->update_options( $opts );
-
-			wp_redirect( remove_query_arg( 'delete-twitter-user' ), 307 );
-			exit;
-		}
-	}
-
 	protected function filter( $opt = '', $filter = '', $else = '' ) {
 		if ( empty( $opt ) ) return $else;
 		if ( $filter == 'absint' ) return absint( $opt );
 		else return esc_attr( $opt );
-	}
-
-	protected function user_form( $reg, $message = 'Enter another Twitter username to import their tweets.' ) {
-
-		$id = $this->pre.'registration[user]';
-		$message = $message ? $message : '<p>Click to be taken to Twitter\'s site to securely authorize this plugin for use with your account.</p><p><em>(If you have already authorized an account, You will first be logged out of Twitter.)</em></p>';
-		?>
-		<form class="twitter-importer" method="post" action="options.php">
-			<?php
-			settings_fields( 'dsgnwrks_twitter_importer_users' ); ?>
-
-
-			<table class="form-table">
-				<p><?php echo $message; ?></p>
-				<tr valign="top">
-				<th scope="row"><label for="<?php echo $id; ?>"><strong>Twitter Username:</strong></label></th>
-				<td><strong class="atsymbol">@</strong><input type="text" id="<?php echo $id; ?>" name="<?php echo $id; ?>" value="" /></td>
-				</tr>
-			</table>
-			<p class="submit">
-				<input type="submit" name="save" class="button-primary" value="<?php _e( 'Save' ) ?>" />
-			</p>
-		</form>
-
-		<?php
 	}
 
 	public function twitterwp() {
@@ -587,16 +541,16 @@ class DsgnWrksTwitter {
 		return add_query_arg( 'page', $this->slug, admin_url( 'tools.php' ) );
 	}
 
-	public function option_name( $handle, $subhandle = '', $echo = true ) {
+	public function option_name( $handle, $subhandle = '', $echo = true, $option_name = 'options' ) {
 		if ( $subhandle )
 			$string = 'name="%s[%s][%s]"';
 		else
 			$string = 'name="%s[%s]"';
 
 		if ( $echo )
-			printf( $string, $this->name( 'options' ), $handle, $subhandle );
+			printf( $string, $this->name( $option_name ), $handle, $subhandle );
 		else
-			sprintf( $string, $this->name( 'options' ), $handle );
+			sprintf( $string, $this->name( $option_name ), $handle );
 	}
 
 	/**

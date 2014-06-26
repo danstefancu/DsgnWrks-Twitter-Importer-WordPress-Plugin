@@ -6,8 +6,6 @@ add_thickbox();
 
 $opts = $this->options();
 
-var_dump( $opts );
-
 $reg = get_option( $this->pre.'registration' );
 $users = $this->users();
 
@@ -420,8 +418,7 @@ if ( !empty( $users ) && is_array( $users ) ) {
 					<?php
 				} else {
 
-					$message = 'Welcome to Twitter Importer! Enter a Twitter username, and we\'ll get started.';
-					$this->user_form( $reg, $message );
+					include( 'form-user.php' );
 				}
 
 				if ( !$nogo ) { ?>
