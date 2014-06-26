@@ -225,20 +225,19 @@ class DsgnWrksTwitter {
 	 */
 	public function process_action() {
 
-
 		if ( isset ( $_GET['twitter_username'] ) && isset( $_REQUEST['action'] ) && check_admin_referer( $this->name( 'options' ) ) ) {
-
-
+			$redirect_to = wp_get_referer() ? wp_get_referer() : $this->plugin_page() ;
 
 			if ( ! $this->twitterwp()->user_exists( $_GET['twitter_username'] ) ) {
-				$this->log( new WP_Error( $this->name( 'error', 'Import error: invalid username.' ) ) );
-				return;
+				$this->log( new WP_Error( $this->name( 'error' ), 'Invalid username: <strong>' . $_GET['twitter_username'] . '</strong>.' ) );
+				wp_redirect( $redirect_to );
+				exit;
 			}
 
 			switch ( $_REQUEST['action'] ) {
 				case 'delete' :
 
-					$this->log( new WP_Error( $this->name( 'success' ), 'User deleted: <strong>' . $_GET['twitter_username'] . '</strong>' ) );
+					$this->log( new WP_Error( $this->name( 'success' ), 'User deleted: <strong>' . $_GET['twitter_username'] . '</strong>.' ) );
 					break;
 
 				case 'import' :
@@ -247,7 +246,7 @@ class DsgnWrksTwitter {
 
 			}
 
-			wp_redirect( wp_get_referer() );
+			wp_redirect( $redirect_to );
 			exit;
 		}
 	}
@@ -286,7 +285,7 @@ class DsgnWrksTwitter {
 			// @TODO https://dev.twitter.com/docs/working-with-timelines
 
 			// get latest 200 tweets
-			$tweets = $this->twitterwp()->get_tweets( $username, 200 );
+			$tweets = $this->twitterwp()->get_tweets( $username, 20 );
 		}
 
 		if ( is_wp_error( $tweets ) ) {
@@ -297,11 +296,17 @@ class DsgnWrksTwitter {
 		// pre-import filter
 		$tweets = apply_filters( $this->name( 'filter_tweets' ), $tweets );
 
+		$count = 0;
+
+
 		foreach ( $tweets as $tweet ) {
+			$count++;
 
 			// filter by date
 			if ( $this->options[$username]['date-filter'] > strtotime( $tweet->created_at ) ) {
-				$this->import_messages->add( $this->name( 'success' ), 'Date filter limit reached.' );
+				if ( $count == 1 ) {
+					$this->import_messages->add( $this->name( 'success' ), 'No new tweets.' );
+				}
 				break;
 			}
 
@@ -322,15 +327,17 @@ class DsgnWrksTwitter {
 			}
 
 			// filter retweets
-			if ( $this->options[$username]['no-retweets'] ) {
-				if ( $tweet->retweeted || ( strpos( $tweet->text, 'RT @' ) !== false ) )
+			if ( isset( $this->options[$username]['no-retweets'] ) && $this->options[$username]['no-retweets'] ) {
+				if ( $tweet->retweeted || ( strpos( $tweet->text, 'RT @' ) !== false ) ) {
 					continue;
+				}
 			}
 
 			// filter replies
-			if ( $this->options[$username]['no-replies'] ) {
-				if ( $tweet->in_reply_to_user_id || ( strpos( $tweet->text, '@' ) == 0 ) )
+			if ( isset( $this->options[$username]['no-replies'] ) && $this->options[$username]['no-replies'] ) {
+				if ( $tweet->in_reply_to_user_id || ( strpos( $tweet->text, '@' ) === 0 ) ) {
 					continue;
+				}
 			}
 
 			// filter by existence
@@ -347,6 +354,7 @@ class DsgnWrksTwitter {
 			);
 
 			if ( $already_stored->have_posts() ) {
+				$count--;
 				continue;
 			}
 
@@ -557,11 +565,12 @@ class DsgnWrksTwitter {
 		$t = get_transient( $this->name('message') );;
 
 		if ( $t ) {
-			foreach ( $t as $m ) {
-				foreach ( $m as $code => $message ) {
+			foreach ( $t as $code => $messages ) {
+				foreach ( $messages as $message ) {
 					$class = ($code == $this->name( 'error' )) ? 'error' : 'updated';
 
-					printf( '<div class="%s"><p>%s</p></div>', $class, $message );
+					if ( $message )
+						printf( '<div class="%s"><p>%s</p></div>', $class, $message );
 				}
 			}
 			delete_transient( $this->name('message') );
@@ -607,7 +616,10 @@ class DsgnWrksTwitter {
 			$t = array();
 
 		foreach ( (array) $message->errors as $code => $messages ) {
-			$t[] =  array( $code => $messages );
+			if ( isset( $t[$code] ) )
+				$t[$code] = array_merge( $t[$code], $messages);
+			else
+				$t[$code] = $messages;
 		}
 
 		set_transient( $this->name('message'), $t, 60 * 60 * 24 );
