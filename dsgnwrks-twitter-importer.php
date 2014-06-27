@@ -514,6 +514,11 @@ class DsgnWrksTwitter {
 
 		}
 
+		// tweet link
+		$link = sprintf( 'https://twitter.com/%s/status/%s', $tweet->user->screen_name, $tweet->id_str);
+		update_post_meta( $new_post_id, 'link', $link );
+
+
 		// tweet urls
 		update_post_meta( $new_post_id, 'tweet_urls', $tweet->entities->urls );
 
