@@ -364,7 +364,7 @@ class DsgnWrksTwitter {
 			// @TODO https://dev.twitter.com/docs/working-with-timelines
 
 			// get latest 200 tweets
-			$tweets = $this->twitterwp()->get_tweets( $username, 20 );
+			$tweets = $this->twitterwp()->get_tweets( $username, 200 );
 		}
 
 		if ( is_wp_error( $tweets ) ) {
