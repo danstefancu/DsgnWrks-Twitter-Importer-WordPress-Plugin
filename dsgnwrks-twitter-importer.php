@@ -15,10 +15,11 @@ define( '_DWTW_URL', plugins_url('/', __FILE__ ) );
 class DsgnWrksTwitter {
 	public $version =  '2.0.0';
 	public $options;
+	public $capability;
 
 	protected $prefix      = 'dp_twimport';
 	protected $slug;
-	protected $capability;
+
 	protected $import_messages;
 
 
@@ -86,78 +87,106 @@ class DsgnWrksTwitter {
 
 		register_setting(
 			$this->name( 'users' ),
-			$this->name( 'users' )
-			//array( $this, 'validate_users' )
+			$this->name( 'users' ),
+			array( $this, 'validate_users' )
 		);
 		register_setting(
 			$this->name( 'options' ),
-			$this->name( 'options' )
-			//array( $this, 'validate_settings' )
+			$this->name( 'options' ),
+			array( $this, 'validate_settings' )
 		);
 	}
 
-	public function validate_users( $opts ) {
+	public function validate_users( $user ) {
 
-		if ( !empty( $opts['user'] ) ) {
-			$validated = $this->validate_user( $opts['user'] );
+		if ( !empty( $user ) ) {
 
-			if ( $validated ) {
-				$exists = $this->twitterwp()->user_exists( $opts['user'] );
+			if ( ! $this->valid_username( $user ) )
+				$this->log( new WP_Error( $this->name( 'error' ), 'Invalid characters in username.') );
 
-				if ( ! $exists ) {
-					$opts['badauth'] = 'error';
-					$opts['noauth'] = true;
-				} else {
-					$opts['badauth'] = 'good';
-					$opts['noauth'] = '';
+			if ( ! $this->twitterwp()->user_exists( $user ) )
+				$this->log( new WP_Error( $this->name( 'error' ), 'Invalid username: <strong>' . $user . '</strong>.') );
 
-					$this->update_option( 'username', $opts['user'] );
-				}
+			$options = $this->get_option( 'options' );
 
-			} else {
-				// unset( $options['user'] );
-				$opts['badauth'] = 'error';
-				$opts['noauth'] = true;
-			}
+			$options[$user] = array();
+
+			$this->update_option( 'options', $options );
+
+			$this->log( new WP_Error( $this->name( 'success' ), 'Twitter user added: <strong>' . $user . '</strong>.') );
+
+			$this->set_active_user( $user );
+
 		}
-		return $opts;
 	}
 
-	protected function validate_user( $username ) {
+	function defaults() {
+		$options = array();
+		$options['tag-filter'] = '';
+		$options['mm'] = 0;
+		$options['dd'] = 0;
+		$options['yy'] = 0;
+		$options['date-filter'] = 0;
+		$options['remove-date-filter'] = '';
+		$options['draft'] = '';
+		$options['post-type'] = '';
+		$options['author'] = '';
+		$options['no-replies'] = '';
+		$options['no-retweets'] = '';
+		$options['hashtags_as_tax'] = '';
+		$options['category'] = '';
+		$options['post_tag'] = '';
+		$options['post_format'] = '';
+
+		return $options;
+	}
+
+	protected function set_active_user( $user ) {
+		setcookie( $this->name( 'active_username' ), $user, time()+ 60*24*24, COOKIEPATH, COOKIE_DOMAIN, false);
+	}
+
+	protected function valid_username( $username ) {
 		return preg_match( '/^[A-Za-z0-9_]+$/', $username );
 	}
 
-	public function validate_settings( $opts ) {
+	public function validate_settings( $options ) {
 
-		if ( empty( $opts ) ) return;
-		foreach ( $opts as $user => $useropts ) {
-			if ( $user == 'username' ) continue;
-			foreach ( $useropts as $key => $opt ) {
+		if ( empty( $options ) )
+			return $options;
 
-				if ( $key === 'date-filter' ) {
-					if ( empty( $opts[$user]['mm'] ) && empty( $opts[$user]['dd'] ) && empty( $opts[$user]['yy'] ) || !empty( $opts[$user]['remove-date-filter'] ) ) {
-						$opts[$user][$key] = 0;
+		foreach ( $options as $user => $user_options ) {
+
+			$user_options = wp_parse_args( $user_options, $this->defaults() );
+
+			$this->set_active_user( $user );
+
+			foreach ( $user_options as $option_name => $value ) {
+
+				if ( $option_name === 'date-filter' ) {
+					if ( empty( $options[$user]['mm'] ) && empty( $options[$user]['dd'] ) && empty( $options[$user]['yy'] ) || !empty( $options[$user]['remove-date-filter'] ) ) {
+						$options[$user][$option_name] = 0;
 					} else {
-						$opts[$user][$key] = strtotime( $opts[$user]['mm'] .'/'. $opts[$user]['dd'] .'/'. $opts[$user]['yy'] );
+						$options[$user][$option_name] = strtotime( $options[$user]['mm'] .'/'. $options[$user]['dd'] .'/'. $options[$user]['yy'] );
 					}
-				} elseif ( $key === 'post-type' ) {
-					$opts[$user][$key] = $this->filter( $opt, '', 'post' );
-				} elseif ( $key === 'draft' ) {
-					$opts[$user][$key] = $this->filter( $opt, '', 'draft' );
-				} elseif ( $key === 'yy' || $key === 'mm' || $key === 'dd' ) {
-					if ( empty( $opts[$user]['mm'] ) && empty( $opts[$user]['dd'] ) && empty( $opts[$user]['yy'] ) || !empty( $opts[$user]['remove-date-filter'] ) ) {
-						$opts[$user][$key] = '';
-					} else {
-						$opts[$user][$key] = $this->filter( $opt, 'absint', '' );
-					}
+				} elseif ( $option_name === 'post-type' ) {
+					$options[$user][$option_name] = $this->filter( $value, '', 'post' );
+				} elseif ( $option_name === 'draft' ) {
+					$options[$user][$option_name] = $this->filter( $value, '', 'draft' );
+				} elseif ( $option_name === 'yy' || $option_name === 'mm' || $option_name === 'dd' ) {
+					$options[$user][$option_name] = $this->filter( $value, 'absint', 0 );
 				} else {
-					$opts[$user][$key] = $this->filter( $opt );
+					$options[$user][$option_name] = $this->filter( $value );
+				}
+
+				if ( $option_name == 'remove-date-filter' && $value == 1 ) {
+					$options[$user]['mm'] = $options[$user]['dd'] = $options[$user]['yy'] = $options[$user]['date-filter'] = 0;
+					$options[$user]['remove-date-filter'] = '';
 				}
 
 			}
 		}
 
-		return $opts;
+		return $options;
 	}
 
 	public function admin_setup() {
@@ -455,9 +484,12 @@ class DsgnWrksTwitter {
 	}
 
 	protected function filter( $opt = '', $filter = '', $else = '' ) {
-		if ( empty( $opt ) ) return $else;
-		if ( $filter == 'absint' ) return absint( $opt );
-		else return esc_attr( $opt );
+		if ( empty( $opt ) )
+			return $else;
+		if ( $filter == 'absint' )
+			return absint( $opt );
+		else
+			return esc_attr( $opt );
 	}
 
 	public function twitterwp() {

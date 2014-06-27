@@ -6,7 +6,7 @@
 	<table class="form-table">
 		<tr valign="top">
 			<th scope="row"><label><strong>Twitter Username:</strong></label></th>
-			<td><strong class="atsymbol">@</strong><input type="text" name="<?php echo $this->name( 'users' ) . '[user]'; ?>" value="" /></td>
+			<td><strong class="atsymbol">@</strong><input type="text" name="<?php echo $this->name( 'users' ); ?>" value="" /></td>
 		</tr>
 	</table>
 
