@@ -39,6 +39,11 @@ class DsgnWrksTwitter {
 		// Register settings and get options
 		add_action( 'init', array( $this, 'init' ), 10 );
 
+		// Register cron
+		add_action( 'init', array( $this, 'setup_schedule' ) );
+
+		add_action( $this->name( 'event' ), array( $this, 'cron' ) );
+
 		add_action( 'admin_menu', array( $this, 'admin_setup' ) );
 
 		// For options page
@@ -71,124 +76,6 @@ class DsgnWrksTwitter {
 		return $links;
 	}
 
-	/**
-	 * Run on init, easier to filter by other plugins.
-	 */
-	public function init() {
-		$this->capability = apply_filters( $this->name( 'capability' ), 'manage_options' );
-
-		$this->options = $this->get_option( 'options', array() );
-	}
-
-	/**
-	 * Prepare options page.
-	 */
-	public function admin_init() {
-
-		register_setting(
-			$this->name( 'users' ),
-			$this->name( 'users' ),
-			array( $this, 'validate_users' )
-		);
-		register_setting(
-			$this->name( 'options' ),
-			$this->name( 'options' ),
-			array( $this, 'validate_settings' )
-		);
-	}
-
-	public function validate_users( $user ) {
-
-		if ( !empty( $user ) ) {
-
-			if ( ! $this->valid_username( $user ) )
-				$this->log( new WP_Error( $this->name( 'error' ), 'Invalid characters in username.') );
-
-			if ( ! $this->twitterwp()->user_exists( $user ) )
-				$this->log( new WP_Error( $this->name( 'error' ), 'Invalid username: <strong>' . $user . '</strong>.') );
-
-			$options = $this->get_option( 'options' );
-
-			$options[$user] = array();
-
-			$this->update_option( 'options', $options );
-
-			$this->log( new WP_Error( $this->name( 'success' ), 'Twitter user added: <strong>' . $user . '</strong>.') );
-
-			$this->set_active_user( $user );
-
-		}
-	}
-
-	function defaults() {
-		$options = array();
-		$options['tag-filter'] = '';
-		$options['mm'] = 0;
-		$options['dd'] = 0;
-		$options['yy'] = 0;
-		$options['date-filter'] = 0;
-		$options['remove-date-filter'] = '';
-		$options['draft'] = '';
-		$options['post-type'] = '';
-		$options['author'] = '';
-		$options['no-replies'] = '';
-		$options['no-retweets'] = '';
-		$options['hashtags_as_tax'] = '';
-		$options['category'] = '';
-		$options['post_tag'] = '';
-		$options['post_format'] = '';
-
-		return $options;
-	}
-
-	protected function set_active_user( $user ) {
-		setcookie( $this->name( 'active_username' ), $user, time()+ 60*24*24, COOKIEPATH, COOKIE_DOMAIN, false);
-	}
-
-	protected function valid_username( $username ) {
-		return preg_match( '/^[A-Za-z0-9_]+$/', $username );
-	}
-
-	public function validate_settings( $options ) {
-
-		if ( empty( $options ) )
-			return $options;
-
-		foreach ( $options as $user => $user_options ) {
-
-			$user_options = wp_parse_args( $user_options, $this->defaults() );
-
-			$this->set_active_user( $user );
-
-			foreach ( $user_options as $option_name => $value ) {
-
-				if ( $option_name === 'date-filter' ) {
-					if ( empty( $options[$user]['mm'] ) && empty( $options[$user]['dd'] ) && empty( $options[$user]['yy'] ) || !empty( $options[$user]['remove-date-filter'] ) ) {
-						$options[$user][$option_name] = 0;
-					} else {
-						$options[$user][$option_name] = strtotime( $options[$user]['mm'] .'/'. $options[$user]['dd'] .'/'. $options[$user]['yy'] );
-					}
-				} elseif ( $option_name === 'post-type' ) {
-					$options[$user][$option_name] = $this->filter( $value, '', 'post' );
-				} elseif ( $option_name === 'draft' ) {
-					$options[$user][$option_name] = $this->filter( $value, '', 'draft' );
-				} elseif ( $option_name === 'yy' || $option_name === 'mm' || $option_name === 'dd' ) {
-					$options[$user][$option_name] = $this->filter( $value, 'absint', 0 );
-				} else {
-					$options[$user][$option_name] = $this->filter( $value );
-				}
-
-				if ( $option_name == 'remove-date-filter' && $value == 1 ) {
-					$options[$user]['mm'] = $options[$user]['dd'] = $options[$user]['yy'] = $options[$user]['date-filter'] = 0;
-					$options[$user]['remove-date-filter'] = '';
-				}
-
-			}
-		}
-
-		return $options;
-	}
-
 	public function admin_setup() {
 		$hook = add_submenu_page(
 			'tools.php',
@@ -198,8 +85,6 @@ class DsgnWrksTwitter {
 			$this->slug,
 			array( $this, 'options_page' )
 		);
-
-		//var_dump( $hook, $this->slug );
 
 		add_action( 'admin_print_styles-' . $hook, array( $this, 'styles' ) );
 		add_action( 'admin_print_scripts-' . $hook, array( $this, 'scripts' ) );
@@ -246,6 +131,171 @@ class DsgnWrksTwitter {
 		if ( !empty( $data ) )
 			wp_localize_script( $this->name( 'admin' ), 'dwtwitter', $data );
 	}
+	/**
+	 * Run on init, easier to filter by other plugins.
+	 */
+	public function init() {
+		$this->capability = apply_filters( $this->name( 'capability' ), 'manage_options' );
+
+		$this->options = $this->get_option( 'options', array() );
+	}
+
+	public function setup_schedule() {
+		if ( ! wp_next_scheduled( $this->name( 'event' ) ) ) {
+			wp_schedule_event( time(), 'hourly', $this->name( 'event' ) );
+		}
+	}
+
+	public function cron() {
+		foreach ( $this->options as $username => $user_options ) {
+			$this->import( $username );
+		}
+	}
+
+	/**
+	 * Prepare options page.
+	 */
+	public function admin_init() {
+
+		register_setting(
+			$this->name( 'users' ),
+			$this->name( 'users' ),
+			array( $this, 'validate_user' )
+		);
+		register_setting(
+			$this->name( 'options' ),
+			$this->name( 'options' ),
+			array( $this, 'validate_settings' )
+		);
+	}
+
+	/**
+	 * Default options for each twitter user.
+	 *
+	 * @return array
+	 */
+	function defaults() {
+		$options = array();
+		$options['tag-filter'] = '';
+		$options['mm'] = 0;
+		$options['dd'] = 0;
+		$options['yy'] = 0;
+		$options['date-filter'] = 0;
+		$options['remove-date-filter'] = '';
+		$options['draft'] = '';
+		$options['post-type'] = '';
+		$options['author'] = '';
+		$options['no-replies'] = '';
+		$options['no-retweets'] = '';
+		$options['hashtags_as_tax'] = '';
+		$options['category'] = '';
+		$options['post_tag'] = '';
+		$options['post_format'] = '';
+
+		return $options;
+	}
+
+	/**
+	 * Used as filter when adding a new user. Checks and adds a new user with default settings.
+	 *
+	 * Callback for form-user. Returns nothing, we don't need to save extra options in db.
+	 *
+	 * @param $user
+	 *
+	 * @return void
+	 */
+	public function validate_user( $user ) {
+
+		if ( !empty( $user ) ) {
+
+			if ( ! $this->valid_username( $user ) )
+				$this->log( new WP_Error( $this->name( 'error' ), 'Invalid characters in username.') );
+
+			if ( ! $this->twitterwp()->user_exists( $user ) )
+				$this->log( new WP_Error( $this->name( 'error' ), 'Invalid username: <strong>' . $user . '</strong>.') );
+
+			$options = $this->get_option( 'options' );
+
+			$options[$user] = $this->defaults();
+
+			$this->update_option( 'options', $options );
+
+			$this->log( new WP_Error( $this->name( 'success' ), 'Twitter user added: <strong>' . $user . '</strong>.') );
+
+			$this->set_active_username( $user );
+
+		}
+	}
+
+	/**
+	 * Sanitize options, sets active user and calculates date-filter if needed.
+	 *
+	 * @param $options
+	 *
+	 * @return mixed
+	 */
+	public function validate_settings( $options ) {
+
+		if ( empty( $options ) )
+			return $options;
+
+		foreach ( $options as $user => $user_options ) {
+
+			$user_options = wp_parse_args( $user_options, $this->defaults() );
+
+			$this->set_active_username( $user );
+
+			foreach ( $user_options as $option_name => $value ) {
+
+				if ( $option_name === 'date-filter' ) {
+					if ( empty( $options[$user]['mm'] ) && empty( $options[$user]['dd'] ) && empty( $options[$user]['yy'] ) || !empty( $options[$user]['remove-date-filter'] ) ) {
+						$options[$user][$option_name] = 0;
+					} else {
+						$options[$user][$option_name] = strtotime( $options[$user]['mm'] .'/'. $options[$user]['dd'] .'/'. $options[$user]['yy'] );
+					}
+				} elseif ( $option_name === 'post-type' ) {
+					$options[$user][$option_name] = $this->filter( $value, '', 'post' );
+				} elseif ( $option_name === 'draft' ) {
+					$options[$user][$option_name] = $this->filter( $value, '', 'draft' );
+				} elseif ( $option_name === 'yy' || $option_name === 'mm' || $option_name === 'dd' ) {
+					$options[$user][$option_name] = $this->filter( $value, 'absint', 0 );
+				} else {
+					$options[$user][$option_name] = $this->filter( $value );
+				}
+
+				if ( $option_name == 'remove-date-filter' && $value == 1 ) {
+					$options[$user]['mm'] = $options[$user]['dd'] = $options[$user]['yy'] = $options[$user]['date-filter'] = 0;
+					$options[$user]['remove-date-filter'] = '';
+				}
+
+			}
+		}
+
+		return $options;
+	}
+
+
+	/**
+	 * Used on form after saving to display saved user tab.
+	 *
+	 * @param string $username
+	 */
+	protected function set_active_username( $username ) {
+		setcookie( $this->name( 'active_username' ), $username, time()+ 60*24*24, COOKIEPATH, COOKIE_DOMAIN, false);
+	}
+
+	/**
+	 * Make sure there are no incompatible characters.
+	 *
+	 * @param string $username
+	 *
+	 * @return int
+	 */
+	protected function valid_username( $username ) {
+		return preg_match( '/^[A-Za-z0-9_]+$/', $username );
+	}
+
+
 
 	/**
 	 * Handle actions like import or delete
@@ -396,6 +446,12 @@ class DsgnWrksTwitter {
 		return true;
 	}
 
+	/**
+	 * Where magic happens. Uses wp_insert_post
+	 *
+	 * @param $tweet
+	 * @param array $opts
+	 */
 	protected function save_tweet( $tweet, $opts = array() ) {
 
 		global $user_ID;
@@ -483,6 +539,13 @@ class DsgnWrksTwitter {
 		$this->import_messages->add( $this->name( 'success' ), '<em>'. wp_trim_words( strip_tags( $tweet->text ), 10 ) .'</em> imported and created successfully.' );
 	}
 
+	/**
+	 * @param string $opt
+	 * @param string $filter
+	 * @param string $else
+	 *
+	 * @return int|string
+	 */
 	protected function filter( $opt = '', $filter = '', $else = '' ) {
 		if ( empty( $opt ) )
 			return $else;
@@ -510,35 +573,6 @@ class DsgnWrksTwitter {
 		 * 12Ya5GLGgiHFV3YK6GnixUx50dvEEf2vMita2kOoFQ
 		 */
 		return $this->tw;
-	}
-
-
-	/**
-	 * Retrieve plugin's options (or optionally a specific value by key)
-	 * @param  string       $key key who's related value is desired
-	 * @return array|string      whole option array or specific value by key
-	 */
-	protected function options( $key = '' ) {
-		$this->options = $this->options ? $this->options : get_option( $this->optkey );
-
-		if ( $key )
-			return isset( $this->options[$key] ) ? $this->options[$key] : false;
-
-		return $this->options;
-	}
-
-	/**
-	 * Retrieve plugin's user option (or optionally a specific value by key)
-	 * @param  string       $key key who's related value is desired
-	 * @return array|string      whole option array or specific value by key
-	 */
-	protected function users( $key = '' ) {
-		$this->users = $this->users ? $this->users : get_option( $this->pre.'users' );
-
-		if ( $key )
-			return isset( $this->users[$key] ) ? $this->users[$key] : false;
-
-		return $this->users;
 	}
 
 	/**
